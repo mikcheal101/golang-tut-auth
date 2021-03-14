@@ -90,7 +90,21 @@ func registerEndpoint(w http.ResponseWriter, req *http.Request) {
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(user.Password), 10)
 	handleError(err)
-	fmt.Println(hash)
+	user.Password = string(hash)
+
+	stmt := "insert into users (username, password) values ($1, $2) RETURNING id;"
+	err = db.QueryRow(stmt, user.Username, user.Password).Scan(&user.ID)
+	if err != nil {
+		error.Message = "Invalid user credentials!"
+		respondWithError(w, http.StatusInternalServerError, error)
+		return
+	}
+
+	// reset password to disable the returning of the password to the user
+	user.Password = ""
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(user)
+	
 }
 
 func profileEndpoint(w http.ResponseWriter, req *http.Request) {
