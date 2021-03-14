@@ -7,8 +7,10 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/mux"
 	"github.com/lib/pq"
 )
@@ -61,13 +63,82 @@ func main() {
 	handleError(err)
 }
 
+func GenerateToken(user User) (string, error) {
+	var err error
+	secret := "secret" // for tutorial purposes
+	// jwt contains header.payload.secret
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"username": user.Username,
+		"iss":      "course",
+	})
+
+	tokenString, err := token.SignedString([]byte(secret))
+	handleError(err)
+
+	return tokenString, nil
+}
+
 func loginEndpoint(w http.ResponseWriter, req *http.Request) {
-	fmt.Println("[*] login invoked!")
+	var user User
+	var error Error
+	var jwt JWT
+
+	// decode the entered data into user
+	json.NewDecoder(req.Body).Decode(&user)
+
+	// validate entry
+	if strings.Trim(user.Username, " ") == "" {
+		error.Message = "Username is required!"
+		respondWithError(w, http.StatusBadRequest, error)
+		return
+	}
+
+	if strings.Trim(user.Password, " ") == "" {
+		error.Message = "Password is required!"
+		respondWithError(w, http.StatusBadRequest, error)
+		return
+	}
+
+	var pwd string
+	stmt := "select id, username, password from users where username=$1"
+	err := db.QueryRow(stmt, user.Username).Scan(&user.ID, &user.Username, &pwd)
+	if err != nil {
+		error.Message = err.Error()
+		if err == sql.ErrNoRows {
+			error.Message = "User does not exist!"
+		}
+		respondWithError(w, http.StatusBadRequest, error)
+		return
+	}
+
+	// compare password
+	err = bcrypt.CompareHashAndPassword([]byte(pwd), []byte(user.Password))
+	if err != nil {
+		error.Message = "User does not exist!"
+		respondWithError(w, http.StatusBadRequest, error)
+		return
+	}
+
+	user.Password = ""
+	w.Header().Set("Content-Type", "application/json")
+	token, err := GenerateToken(user)
+	handleError(err)
+
+	jwt.Token = token
+	respondWithJson(w, jwt)
 }
 
 func respondWithError(w http.ResponseWriter, status int, error Error) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(error)
+}
+
+func respondWithJson(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(data)
 }
 
 func registerEndpoint(w http.ResponseWriter, req *http.Request) {
@@ -104,7 +175,6 @@ func registerEndpoint(w http.ResponseWriter, req *http.Request) {
 	user.Password = ""
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(user)
-	
 }
 
 func profileEndpoint(w http.ResponseWriter, req *http.Request) {
@@ -112,5 +182,37 @@ func profileEndpoint(w http.ResponseWriter, req *http.Request) {
 }
 
 func TokenVerifyMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return next
+	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		var errorObject Error
+		authHeader := r.Header.Get("authorization")
+		bearerToken := strings.Split(authHeader, " ")
+		if len(bearerToken) == 2 {
+			authToken := bearerToken[1]
+			token, err := jwt.Parse(authToken, func(t *jwt.Token) (interface{}, error) {
+				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, fmt.Errorf("%v", "There was an error")
+				}
+
+				return []byte("secret"), nil
+			})
+
+			if err != nil {
+				errorObject.Message = err.Error()
+				respondWithError(rw, http.StatusUnauthorized, errorObject)
+				return
+			}
+
+			if token.Valid {
+				next.ServeHTTP(rw, r)
+			} else {
+				errorObject.Message = err.Error()
+				respondWithError(rw, http.StatusUnauthorized, errorObject)
+				return
+			}
+		} else {
+			errorObject.Message = "Invalid token"
+			respondWithError(rw, http.StatusUnauthorized, errorObject)
+			return
+		}
+	})
 }
