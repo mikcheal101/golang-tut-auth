@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -13,6 +14,7 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/mux"
 	"github.com/lib/pq"
+	"github.com/subosito/gotenv"
 )
 
 var db *sql.DB
@@ -35,6 +37,10 @@ func handleError(err error) {
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
+}
+
+func init() {
+	gotenv.Load()
 }
 
 func main() {
@@ -65,7 +71,7 @@ func main() {
 
 func GenerateToken(user User) (string, error) {
 	var err error
-	secret := "secret" // for tutorial purposes
+	secret := os.Getenv("APP_SECRET")
 	// jwt contains header.payload.secret
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
@@ -193,7 +199,7 @@ func TokenVerifyMiddleware(next http.HandlerFunc) http.HandlerFunc {
 					return nil, fmt.Errorf("%v", "There was an error")
 				}
 
-				return []byte("secret"), nil
+				return []byte(os.Getenv("APP_SECRET")), nil
 			})
 
 			if err != nil {
