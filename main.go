@@ -1,12 +1,17 @@
 package main
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/lib/pq"
 )
+
+var db *sql.DB
 
 type User struct {
 	ID       string `json:"id"`
@@ -22,7 +27,19 @@ type Error struct {
 	Message string `json:"message"`
 }
 
+func handleError(err error) {
+	if err != nil {
+		log.Fatalln(err.Error())
+	}
+}
+
 func main() {
+	pgUrl, err := pq.ParseURL("postgres://olretafs:tHhnTvI91wYik-weIGGHTxSqArqpRfTZ@ziggy.db.elephantsql.com:5432/olretafs")
+	handleError(err)
+
+	// open pg connection
+	db, err = sql.Open("postgres", pgUrl)
+	handleError(err)
 
 	router := mux.NewRouter()
 
@@ -38,10 +55,8 @@ func main() {
 	http.Handle("/", router)
 
 	log.Println("Listening on port: 8000")
-	err := http.ListenAndServe(":9090", router)
-	if err != nil {
-		log.Fatalln(err.Error())
-	}
+	err = http.ListenAndServe(":9090", router)
+	handleError(err)
 }
 
 func loginEndpoint(w http.ResponseWriter, req *http.Request) {
@@ -49,7 +64,9 @@ func loginEndpoint(w http.ResponseWriter, req *http.Request) {
 }
 
 func registerEndpoint(w http.ResponseWriter, req *http.Request) {
-	fmt.Println("[*] sign up invoked!")
+	var user User
+
+	json.NewDecoder(req.Body).Decode(&user)
 }
 
 func profileEndpoint(w http.ResponseWriter, req *http.Request) {
