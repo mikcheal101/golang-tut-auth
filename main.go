@@ -44,7 +44,7 @@ func init() {
 }
 
 func main() {
-	pgUrl, err := pq.ParseURL("postgres://olretafs:tHhnTvI91wYik-weIGGHTxSqArqpRfTZ@ziggy.db.elephantsql.com:5432/olretafs")
+	pgUrl, err := pq.ParseURL(os.Getenv("DB_URL"))
 	handleError(err)
 
 	// open pg connection
