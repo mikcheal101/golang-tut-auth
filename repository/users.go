@@ -3,14 +3,14 @@ package repository
 import (
 	"database/sql"
 
-	"github.com/mikcheal101/golang-tut-auth/utils"
 	"github.com/mikcheal101/golang-tut-auth/models"
+	"github.com/mikcheal101/golang-tut-auth/utils"
 	"golang.org/x/crypto/bcrypt"
 )
 
-type UserRepository struct {}
+type UserRepository struct{}
 
-func (repo UserRepository) CreateUser(db *sql.DB, user *models.User) (error) {
+func (repo UserRepository) CreateUser(db *sql.DB, user *models.User) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(user.Password), 10)
 	utils.HandleError(err)
 	user.Password = string(hash)
