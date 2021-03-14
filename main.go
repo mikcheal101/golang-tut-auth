@@ -13,25 +13,13 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/mux"
-	"github.com/lib/pq"
+	"github.com/mikcheal101/golang-tut-auth/driver"
+	"github.com/mikcheal101/golang-tut-auth/models"
+	"github.com/mikcheal101/golang-tut-auth/utils"
 	"github.com/subosito/gotenv"
 )
 
 var db *sql.DB
-
-type User struct {
-	ID       int    `json:"id"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type JWT struct {
-	Token string `json:"token"`
-}
-
-type Error struct {
-	Message string `json:"message"`
-}
 
 func handleError(err error) {
 	if err != nil {
@@ -44,12 +32,7 @@ func init() {
 }
 
 func main() {
-	pgUrl, err := pq.ParseURL(os.Getenv("DB_URL"))
-	handleError(err)
-
-	// open pg connection
-	db, err = sql.Open("postgres", pgUrl)
-	handleError(err)
+	db = driver.ConnectDB()
 
 	router := mux.NewRouter()
 
@@ -65,11 +48,11 @@ func main() {
 	http.Handle("/", router)
 
 	log.Println("Listening on port: 8000")
-	err = http.ListenAndServe(":9090", router)
+	err := http.ListenAndServe(":9090", router)
 	handleError(err)
 }
 
-func GenerateToken(user User) (string, error) {
+func GenerateToken(user models.User) (string, error) {
 	var err error
 	secret := os.Getenv("APP_SECRET")
 	// jwt contains header.payload.secret
@@ -86,9 +69,9 @@ func GenerateToken(user User) (string, error) {
 }
 
 func loginEndpoint(w http.ResponseWriter, req *http.Request) {
-	var user User
-	var error Error
-	var jwt JWT
+	var user models.User
+	var error models.Error
+	var jwt models.JWT
 
 	// decode the entered data into user
 	json.NewDecoder(req.Body).Decode(&user)
@@ -96,13 +79,13 @@ func loginEndpoint(w http.ResponseWriter, req *http.Request) {
 	// validate entry
 	if strings.Trim(user.Username, " ") == "" {
 		error.Message = "Username is required!"
-		respondWithError(w, http.StatusBadRequest, error)
+		utils.RespondWithError(w, http.StatusBadRequest, error)
 		return
 	}
 
 	if strings.Trim(user.Password, " ") == "" {
 		error.Message = "Password is required!"
-		respondWithError(w, http.StatusBadRequest, error)
+		utils.RespondWithError(w, http.StatusBadRequest, error)
 		return
 	}
 
@@ -114,7 +97,7 @@ func loginEndpoint(w http.ResponseWriter, req *http.Request) {
 		if err == sql.ErrNoRows {
 			error.Message = "User does not exist!"
 		}
-		respondWithError(w, http.StatusBadRequest, error)
+		utils.RespondWithError(w, http.StatusBadRequest, error)
 		return
 	}
 
@@ -122,7 +105,7 @@ func loginEndpoint(w http.ResponseWriter, req *http.Request) {
 	err = bcrypt.CompareHashAndPassword([]byte(pwd), []byte(user.Password))
 	if err != nil {
 		error.Message = "User does not exist!"
-		respondWithError(w, http.StatusBadRequest, error)
+		utils.RespondWithError(w, http.StatusBadRequest, error)
 		return
 	}
 
@@ -132,36 +115,24 @@ func loginEndpoint(w http.ResponseWriter, req *http.Request) {
 	handleError(err)
 
 	jwt.Token = token
-	respondWithJson(w, jwt)
-}
-
-func respondWithError(w http.ResponseWriter, status int, error Error) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(error)
-}
-
-func respondWithJson(w http.ResponseWriter, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(data)
+	utils.RespondWithJson(w, jwt)
 }
 
 func registerEndpoint(w http.ResponseWriter, req *http.Request) {
-	var user User
-	var error Error
+	var user models.User
+	var error models.Error
 
 	json.NewDecoder(req.Body).Decode(&user)
 
 	if strings.Trim(user.Username, " ") == "" {
 		error.Message = "Username is required!"
-		respondWithError(w, http.StatusBadRequest, error)
+		utils.RespondWithError(w, http.StatusBadRequest, error)
 		return
 	}
 
 	if strings.Trim(user.Password, " ") == "" {
 		error.Message = "Password is required!"
-		respondWithError(w, http.StatusBadRequest, error)
+		utils.RespondWithError(w, http.StatusBadRequest, error)
 		return
 	}
 
@@ -172,8 +143,8 @@ func registerEndpoint(w http.ResponseWriter, req *http.Request) {
 	stmt := "insert into users (username, password) values ($1, $2) RETURNING id;"
 	err = db.QueryRow(stmt, user.Username, user.Password).Scan(&user.ID)
 	if err != nil {
-		error.Message = "Invalid user credentials!"
-		respondWithError(w, http.StatusInternalServerError, error)
+		error.Message = "User already exists!"
+		utils.RespondWithError(w, http.StatusInternalServerError, error)
 		return
 	}
 
@@ -184,12 +155,12 @@ func registerEndpoint(w http.ResponseWriter, req *http.Request) {
 }
 
 func profileEndpoint(w http.ResponseWriter, req *http.Request) {
-	fmt.Println("[*] protected route invoked!")
+	utils.RespondWithJson(w, "it works")
 }
 
 func TokenVerifyMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		var errorObject Error
+		var errorObject models.Error
 		authHeader := r.Header.Get("authorization")
 		bearerToken := strings.Split(authHeader, " ")
 		if len(bearerToken) == 2 {
@@ -204,7 +175,7 @@ func TokenVerifyMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 			if err != nil {
 				errorObject.Message = err.Error()
-				respondWithError(rw, http.StatusUnauthorized, errorObject)
+				utils.RespondWithError(rw, http.StatusUnauthorized, errorObject)
 				return
 			}
 
@@ -212,12 +183,12 @@ func TokenVerifyMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				next.ServeHTTP(rw, r)
 			} else {
 				errorObject.Message = err.Error()
-				respondWithError(rw, http.StatusUnauthorized, errorObject)
+				utils.RespondWithError(rw, http.StatusUnauthorized, errorObject)
 				return
 			}
 		} else {
 			errorObject.Message = "Invalid token"
-			respondWithError(rw, http.StatusUnauthorized, errorObject)
+			utils.RespondWithError(rw, http.StatusUnauthorized, errorObject)
 			return
 		}
 	})
